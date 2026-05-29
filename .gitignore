@@ -1,0 +1,31 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+.env
+.venv/
+venv/
+env/
+
+# outputs (large files, but keep CSVs and PNGs)
+outputs/checkpoints/*.pt
+outputs/checkpoints/*.ckpt
+
+# jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# data cache
+*.h5
+*.hdf5
+*.parquet
+*.pkl
+*.pickle
+
+# lightning logs
+lightning_logs/
+tb_logs/
+mlruns/
