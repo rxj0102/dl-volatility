@@ -1,5 +1,7 @@
 # dl-volatility: LSTM vs. Temporal Fusion Transformer for Realized Volatility Forecasting
 
+[![CI](https://github.com/rxj0102/dl-volatility/actions/workflows/ci.yml/badge.svg)](https://github.com/rxj0102/dl-volatility/actions/workflows/ci.yml)
+
 Benchmark deep-learning volatility models (LSTM, TFT) against classical baselines (GJR-GARCH, XGBoost) on SPY daily data from 2010 to present. Evaluation uses QLIKE loss, RMSE of log-vol, Diebold-Mariano significance tests, and regime-conditional analysis.
 
 ---
