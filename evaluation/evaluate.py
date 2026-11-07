@@ -17,6 +17,7 @@ import seaborn as sns
 import torch
 
 from data.dataset import build_loaders, build_tft_dataframes, SEQ_LEN
+from evaluation.align import align_on_dates
 from data.features import download_and_engineer, FEATURE_COLS
 from evaluation.metrics import qlike, rmse_log_vol, diebold_mariano, regime_qlike
 
@@ -28,7 +29,7 @@ VAL_END = "2020-12-31"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def get_lstm_preds(device: str = "cpu") -> tuple[np.ndarray, np.ndarray]:
+def get_lstm_preds(device: str = "cpu") -> tuple[pd.Series, pd.Series]:
     from training.train_lstm import load_best_lstm
 
     _, _, test_loader, scaler, df = build_loaders(batch_size=256)
@@ -41,7 +42,11 @@ def get_lstm_preds(device: str = "cpu") -> tuple[np.ndarray, np.ndarray]:
             x = x.to(device)
             preds.append(model(x).cpu().numpy())
             targets.append(y.numpy())
-    return np.concatenate(preds), np.concatenate(targets)
+    # the loader's windows end at test rows SEQ_LEN-1 .. n-1: attach those dates
+    test_df = df[df.index > VAL_END]
+    dates = test_df.index[SEQ_LEN - 1 :]
+    return (pd.Series(np.concatenate(preds), index=dates),
+            pd.Series(np.concatenate(targets), index=dates))
 
 
 def get_tft_preds(best_ckpt: str) -> tuple[np.ndarray, np.ndarray]:
@@ -91,22 +96,15 @@ def get_tft_attention(best_ckpt: str, n_samples: int = 100):
     return attention
 
 
-def get_baseline_preds(df: pd.DataFrame) -> dict[str, np.ndarray]:
+def get_baseline_preds(df: pd.DataFrame) -> dict[str, pd.Series]:
     from models.baseline import BaselineForecaster
-
     bf = BaselineForecaster()
     bf.fit(df)
     test_df = df[df.index > VAL_END].dropna()
-
-    garch_preds = bf.predict_garch(test_df)
-    xgb_preds = bf.predict_xgb(test_df)
-    targets = bf.get_test_targets(df).values
-
-    min_len = min(len(garch_preds), len(xgb_preds), len(targets))
     return {
-        "garch": garch_preds[:min_len],
-        "xgb": xgb_preds[:min_len],
-        "targets": targets[:min_len],
+        "garch": bf.predict_garch(test_df),
+        "xgb": bf.predict_xgb(test_df),
+        "targets": bf.get_test_targets(df),
     }
 
 
@@ -119,29 +117,27 @@ def run_evaluation(tft_ckpt: str = None):
     vix = test_df["vix"].values
 
     print("Getting LSTM predictions...")
-    lstm_preds, lstm_targets = get_lstm_preds()
+    lstm_preds, _ = get_lstm_preds()
 
     print("Getting baseline predictions...")
     baseline = get_baseline_preds(df)
-    sigma2 = baseline["targets"]
+    all_preds_s = {"LSTM": lstm_preds, "GARCH": baseline["garch"], "XGB": baseline["xgb"]}
 
-    # align lengths across all models
-    min_len = min(len(lstm_preds), len(baseline["garch"]), len(baseline["xgb"]))
-    lstm_p = lstm_preds[:min_len]
-    garch_p = baseline["garch"][:min_len]
-    xgb_p = baseline["xgb"][:min_len]
-    sigma2 = sigma2[:min_len]
-    vix_aligned = vix[:min_len]
-
-    all_preds = {"LSTM": lstm_p, "GARCH": garch_p, "XGB": xgb_p}
-
-    # TFT (optional — skipped if no checkpoint)
-    tft_p = None
+    # TFT (optional, skipped if no checkpoint). NOTE: the TFT path is not date-aligned
+    # (predict=True yields one window per group); treat it as experimental.
     if tft_ckpt and Path(tft_ckpt).exists():
         print("Getting TFT predictions...")
-        tft_p, _ = get_tft_preds(tft_ckpt)
-        tft_p = tft_p[: min_len]
-        all_preds["TFT"] = tft_p
+        tft_raw, _ = get_tft_preds(tft_ckpt)
+        n = min(len(tft_raw), len(lstm_preds))
+        all_preds_s["TFT"] = pd.Series(tft_raw[:n], index=lstm_preds.index[:n])
+
+    # align on COMMON DATES (models start forecasting on different days)
+    aligned = align_on_dates(baseline["targets"], all_preds_s)
+    sigma2 = aligned["target"].values
+    garch_p = aligned["GARCH"].values
+    vix_aligned = test_df["vix"].reindex(aligned.index).values
+    all_preds = {k: aligned[k].values for k in all_preds_s}
+    min_len = len(aligned)
 
     # ── metrics ───────────────────────────────────────────────────────────────
     rows = []

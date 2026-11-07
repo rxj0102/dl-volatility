@@ -29,11 +29,14 @@ class VolDataset(Dataset):
         self.seq_len = seq_len
 
     def __len__(self):
-        return len(self.data) - self.seq_len
+        # windows end at rows seq_len-1 .. n-1
+        return max(len(self.data) - self.seq_len + 1, 0)
 
     def __getitem__(self, idx):
         x = self.data[idx : idx + self.seq_len]
-        y = self.targets[idx + self.seq_len]
+        # target[t] is already the NEXT-day variance observed from row t, so the
+        # window ending at row idx+seq_len-1 is paired with target[idx+seq_len-1]
+        y = self.targets[idx + self.seq_len - 1]
         return x, y
 
 
@@ -76,7 +79,8 @@ def build_tft_dataframes(ticker: str = "SPY"):
     train_df, val_df, test_df = get_splits(df)
     all_X = pd.concat([train_df, val_df, test_df])
 
-    scaled = scaler.fit_transform(all_X[FEATURE_COLS].values)
+    scaler.fit(train_df[FEATURE_COLS].values)  # train-only statistics (no leakage)
+    scaled = scaler.transform(all_X[FEATURE_COLS].values)
     scaled_df = pd.DataFrame(scaled, columns=FEATURE_COLS, index=all_X.index)
     scaled_df["target"] = all_X["target"].values
     scaled_df["vix_raw"] = all_X["vix"].values  # kept for regime analysis
