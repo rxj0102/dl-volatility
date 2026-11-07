@@ -80,7 +80,8 @@ class BaselineForecaster:
         train_val = pd.concat([train, val])
 
         # GJR-GARCH on log returns
-        self.garch_res = fit_gjr_garch(train_val["log_ret"].dropna())
+        self.train_val_ret_ = train_val["log_ret"].dropna()
+        self.garch_res = fit_gjr_garch(self.train_val_ret_)
 
         # XGBoost
         feat_df = build_xgb_features(train_val)
@@ -102,20 +103,28 @@ class BaselineForecaster:
         self.xgb_model.fit(X_scaled, y)
         return self
 
-    def predict_garch(self, test_df: pd.DataFrame) -> np.ndarray:
-        """GARCH 1-step-ahead variance for each test day."""
-        fc = self.garch_res.forecast(
-            horizon=1, start=test_df.index[0], reindex=True
-        )
-        var_pct = fc.variance.iloc[: len(test_df), 0].values
-        return var_pct / (100**2)
+    def predict_garch(self, test_df: pd.DataFrame) -> pd.Series:
+        """Out-of-sample next-day variance forecast, indexed by the date it is made.
 
-    def predict_xgb(self, test_df: pd.DataFrame) -> np.ndarray:
+        Parameters are fixed at their train+val estimates; the conditional variance
+        is then filtered through the test returns, so the forecast for date t only
+        uses returns up to t. (arch silently ignores ``start`` beyond the fitted
+        sample, so the model is re-built on the full return series with fixed params.)
+        """
+        test_ret = test_df["log_ret"].dropna()
+        ret = pd.concat([self.train_val_ret_, test_ret])
+        ret = ret[~ret.index.duplicated(keep="first")]
+        am = arch_model(ret * 100, vol="GARCH", p=1, o=1, q=1, dist="Normal")
+        fixed = am.fix(self.garch_res.params)
+        fc = fixed.forecast(horizon=1, start=test_ret.index[0], reindex=False)
+        return fc.variance.iloc[:, 0] / (100**2)
+
+    def predict_xgb(self, test_df: pd.DataFrame) -> pd.Series:
         feat_df = build_xgb_features(test_df)
         common = feat_df.index.intersection(test_df.index)
         X = feat_df.loc[common].values
         X_scaled = self.scaler.transform(X)
-        return self.xgb_model.predict(X_scaled)
+        return pd.Series(self.xgb_model.predict(X_scaled), index=common)
 
     def get_test_targets(self, df: pd.DataFrame) -> pd.Series:
         test = df[df.index > VAL_END]
