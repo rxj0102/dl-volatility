@@ -62,10 +62,10 @@ All features are lagged 1 day. Target: next-day Garman-Klass daily variance.
 
 | Model | QLIKE | RMSE (log-vol) | DM vs GARCH stat | DM p-value |
 |-------|-------|----------------|------------------|------------|
-| LSTM | — | — | — | — |
-| TFT | — | — | — | — |
-| GARCH | — | — | 0.000 | 1.000 |
-| XGB | — | — | — | — |
+| LSTM | - | - | - | - |
+| TFT | - | - | - | - |
+| GARCH | - | - | 0.000 | 1.000 |
+| XGB | - | - | - | - |
 
 > Run `python -m training.run_all` to populate this table with actual results.
 
@@ -75,10 +75,10 @@ All features are lagged 1 day. Target: next-day Garman-Klass daily variance.
 
 | Model | Low-vol QLIKE (VIX < 20) | High-vol QLIKE (VIX > 25) |
 |-------|--------------------------|---------------------------|
-| LSTM | — | — |
-| TFT | — | — |
-| GARCH | — | — |
-| XGB | — | — |
+| LSTM | - | - |
+| TFT | - | - |
+| GARCH | - | - |
+| XGB | - | - |
 
 ---
 
@@ -130,15 +130,6 @@ python -m evaluation.evaluate outputs/checkpoints/tft_best.ckpt
 ```
 
 ---
-
-## Resume Bullets
-
-- Built end-to-end volatility forecasting pipeline comparing **LSTM** and **Temporal Fusion Transformer** (TFT) against GJR-GARCH and XGBoost on 14+ years of SPY daily data.
-- Engineered Garman-Klass realized volatility features (5/10/22-day), VIX, log returns, and volume z-scores with rigorous look-ahead prevention.
-- Implemented **QLIKE loss** as training objective and evaluation metric; validated model differences with **Diebold-Mariano tests** (Harvey-Leybourne-Newbold correction).
-- Conducted **regime-conditional analysis** splitting test set by VIX quintile to assess model robustness in low vs. high volatility environments.
-- Extracted and visualized **TFT encoder attention weights** to interpret which historical time steps drive next-day variance forecasts.
-- Achieved early stopping with patience scheduling and full checkpoint/log persistence for reproducibility.
 
 ## Evaluation notes (important)
 
