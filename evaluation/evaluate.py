@@ -108,6 +108,21 @@ def get_baseline_preds(df: pd.DataFrame) -> dict[str, pd.Series]:
     }
 
 
+def get_naive_preds(df: pd.DataFrame) -> dict[str, pd.Series]:
+    """Naive forecasts of the same target, from information through t-1 only.
+
+    - "Random walk": yesterday's Garman-Klass variance.
+    - "22d mean":    mean Garman-Klass variance over the previous 22 days.
+    Any model worth reporting should beat these, not only GARCH, whose
+    close-to-close variance is on a different scale from a range-based target.
+    """
+    t = df["target"]
+    return {
+        "Random walk": t.shift(1),
+        "22d mean": t.rolling(22).mean().shift(1),
+    }
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def run_evaluation(tft_ckpt: str = None):
@@ -122,6 +137,7 @@ def run_evaluation(tft_ckpt: str = None):
     print("Getting baseline predictions...")
     baseline = get_baseline_preds(df)
     all_preds_s = {"LSTM": lstm_preds, "GARCH": baseline["garch"], "XGB": baseline["xgb"]}
+    all_preds_s.update(get_naive_preds(df))
 
     # TFT (optional, skipped if no checkpoint). NOTE: the TFT path is not date-aligned
     # (predict=True yields one window per group); treat it as experimental.
@@ -135,6 +151,7 @@ def run_evaluation(tft_ckpt: str = None):
     aligned = align_on_dates(baseline["targets"], all_preds_s)
     sigma2 = aligned["target"].values
     garch_p = aligned["GARCH"].values
+    rw_p = aligned["Random walk"].values
     vix_aligned = test_df["vix"].reindex(aligned.index).values
     all_preds = {k: aligned[k].values for k in all_preds_s}
     min_len = len(aligned)
@@ -145,6 +162,7 @@ def run_evaluation(tft_ckpt: str = None):
         ql = qlike(sigma2, preds)
         rm = rmse_log_vol(sigma2, preds)
         dm_vs_garch = diebold_mariano(sigma2, preds, garch_p)
+        dm_vs_rw = diebold_mariano(sigma2, preds, rw_p)
         rows.append(
             {
                 "model": name,
@@ -152,10 +170,14 @@ def run_evaluation(tft_ckpt: str = None):
                 "RMSE": round(rm, 6),
                 "DM_vs_GARCH_stat": round(dm_vs_garch["dm_stat"], 4),
                 "DM_p_value": round(dm_vs_garch["p_value"], 4),
+                "DM_vs_RW_stat": round(dm_vs_rw["dm_stat"], 4),
+                "DM_vs_RW_p_value": round(dm_vs_rw["p_value"], 4),
             }
         )
 
     comp_df = pd.DataFrame(rows)
+    comp_df.attrs["n_days"] = min_len
+    print(f"Common test days: {min_len} ({aligned.index[0].date()} to {aligned.index[-1].date()})")
     comp_df.to_csv(OUTPUT_DIR / "model_comparison.csv", index=False)
     print("\nModel comparison:")
     print(comp_df.to_string(index=False))
