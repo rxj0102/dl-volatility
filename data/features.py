@@ -42,6 +42,10 @@ def engineer_features(spy: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
     genuine one-step-ahead forecast problem.
     """
     vix = vix.copy()
+    # Newer yfinance returns download(...)["Close"] as a one-column DataFrame
+    # (column "^VIX"), on which .name does nothing and the join adds no "vix".
+    if isinstance(vix, pd.DataFrame):
+        vix = vix.iloc[:, 0]
     vix.name = "vix"
     df = spy.copy()
     df["log_ret"] = np.log(df["Close"] / df["Close"].shift(1))

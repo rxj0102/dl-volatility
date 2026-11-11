@@ -37,3 +37,10 @@ def test_features_point_in_time(spy_vix, feat_df):
     spy, vix = spy_vix
     part = engineer_features(spy.iloc[:1500], vix.iloc[:1500])
     pd.testing.assert_frame_equal(part, feat_df.loc[part.index])
+
+
+def test_vix_as_one_column_frame_matches_series(spy_vix):
+    """Newer yfinance returns Close as a one-column DataFrame named ^VIX."""
+    spy, vix = spy_vix
+    as_frame = vix.to_frame(name="^VIX")
+    pd.testing.assert_frame_equal(engineer_features(spy, vix), engineer_features(spy, as_frame))
