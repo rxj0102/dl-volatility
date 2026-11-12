@@ -1,5 +1,7 @@
 """Train loop for the LSTM model with early stopping and checkpointing."""
 
+from __future__ import annotations
+
 import csv
 import os
 from pathlib import Path
@@ -24,7 +26,12 @@ def train_lstm(
     batch_size: int = 64,
     lr: float = 1e-3,
     device: str = None,
+    seed: int | None = 0,
+    ckpt_name: str = "lstm_best.pt",
 ):
+    if seed is not None:
+        torch.manual_seed(seed)
+        np.random.seed(seed)
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -33,7 +40,8 @@ def train_lstm(
     train_loader, val_loader, test_loader, scaler, df = build_loaders(batch_size=batch_size)
     input_size = next(iter(train_loader))[0].shape[-1]
 
-    model = build_lstm(input_size=input_size, device=device)
+    init_log_var = float(np.log(train_loader.dataset.targets.mean()))
+    model = build_lstm(input_size=input_size, device=device, init_log_var=init_log_var)
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", patience=5, factor=0.5)
     criterion = QLIKELoss()
@@ -73,7 +81,7 @@ def train_lstm(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            torch.save(model.state_dict(), CHECKPOINT_DIR / "lstm_best.pt")
+            torch.save(model.state_dict(), CHECKPOINT_DIR / ckpt_name)
         else:
             patience_counter += 1
             if patience_counter >= patience:
@@ -86,13 +94,13 @@ def train_lstm(
         writer.writeheader()
         writer.writerows(log_rows)
 
-    print(f"Best val QLIKE: {best_val_loss:.6f}  |  checkpoint: {CHECKPOINT_DIR}/lstm_best.pt")
+    print(f"Best val QLIKE: {best_val_loss:.6f}  |  checkpoint: {CHECKPOINT_DIR}/{ckpt_name}")
     return model, train_loader, val_loader, test_loader, scaler, df
 
 
-def load_best_lstm(input_size: int = 8, device: str = "cpu") -> object:
+def load_best_lstm(input_size: int = 8, device: str = "cpu", ckpt_name: str = "lstm_best.pt") -> object:
     model = build_lstm(input_size=input_size, device=device)
-    model.load_state_dict(torch.load(CHECKPOINT_DIR / "lstm_best.pt", map_location=device))
+    model.load_state_dict(torch.load(CHECKPOINT_DIR / ckpt_name, map_location=device))
     model.eval()
     return model
 

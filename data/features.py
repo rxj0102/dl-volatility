@@ -13,6 +13,9 @@ def garman_klass_vol(df: pd.DataFrame, window: int) -> pd.Series:
     return np.sqrt(gk_daily.rolling(window).mean() * 252)
 
 
+_DOWNLOAD_CACHE: dict = {}
+
+
 def download_and_engineer(
     ticker: str = "SPY",
     vix_ticker: str = "^VIX",
@@ -30,10 +33,21 @@ def download_and_engineer(
       target               – GK daily variance of the row's day (forecast from info through t-1)
     All features are lagged 1 day to avoid look-ahead.
     """
-    spy = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
-    vix = yf.download(vix_ticker, start=start, end=end, auto_adjust=True, progress=False)["Close"]
-    spy.columns = [c[0] if isinstance(c, tuple) else c for c in spy.columns]
-    return engineer_features(spy, vix)
+    key = (ticker, vix_ticker, start, end)
+    if key not in _DOWNLOAD_CACHE:
+        spy = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+        vix = yf.download(vix_ticker, start=start, end=end, auto_adjust=True, progress=False)
+        if spy is None or spy.empty or vix is None or vix.empty:
+            raise RuntimeError(
+                f"Yahoo returned no data for {ticker} or {vix_ticker} "
+                "(often a temporary rate limit). Retry in a few minutes."
+            )
+        spy.columns = [c[0] if isinstance(c, tuple) else c for c in spy.columns]
+        _DOWNLOAD_CACHE[key] = (spy, vix["Close"])
+    spy, vix = _DOWNLOAD_CACHE[key]
+    # Downloads are cached per process: evaluate.py builds the data twice
+    # (LSTM loaders and baselines), and Yahoo rate-limits repeat requests.
+    return engineer_features(spy.copy(), vix.copy())
 
 
 def engineer_features(spy: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
@@ -42,6 +56,10 @@ def engineer_features(spy: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
     genuine one-step-ahead forecast problem.
     """
     vix = vix.copy()
+    # Newer yfinance returns download(...)["Close"] as a one-column DataFrame
+    # (column "^VIX"), on which .name does nothing and the join adds no "vix".
+    if isinstance(vix, pd.DataFrame):
+        vix = vix.iloc[:, 0]
     vix.name = "vix"
     df = spy.copy()
     df["log_ret"] = np.log(df["Close"] / df["Close"].shift(1))
