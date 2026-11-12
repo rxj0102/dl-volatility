@@ -29,12 +29,12 @@ VAL_END = "2020-12-31"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def get_lstm_preds(device: str = "cpu") -> tuple[pd.Series, pd.Series]:
+def get_lstm_preds(device: str = "cpu", ckpt_name: str = "lstm_best.pt") -> tuple[pd.Series, pd.Series]:
     from training.train_lstm import load_best_lstm
 
     _, _, test_loader, scaler, df = build_loaders(batch_size=256)
     input_size = next(iter(test_loader))[0].shape[-1]
-    model = load_best_lstm(input_size=input_size, device=device)
+    model = load_best_lstm(input_size=input_size, device=device, ckpt_name=ckpt_name)
 
     preds, targets = [], []
     with torch.no_grad():
@@ -49,29 +49,22 @@ def get_lstm_preds(device: str = "cpu") -> tuple[pd.Series, pd.Series]:
             pd.Series(np.concatenate(targets), index=dates))
 
 
-def get_tft_preds(best_ckpt: str) -> tuple[np.ndarray, np.ndarray]:
+def get_tft_preds(best_ckpt: str) -> pd.Series:
+    """TFT test forecasts indexed by the date whose target they forecast."""
     from pytorch_forecasting import TemporalFusionTransformer
-    from models.tft_model import build_tft_datasets
+    from models.tft_model import build_tft_datasets, build_tft_test_dataset
 
     scaled_df, train_mask, val_mask, test_mask, scaler = build_tft_dataframes()
     training_ds, _ = build_tft_datasets(scaled_df, train_mask, val_mask)
-
-    from pytorch_forecasting import TimeSeriesDataSet
-
-    test_ds = TimeSeriesDataSet.from_dataset(
-        training_ds, scaled_df[val_mask | test_mask], predict=True, stop_randomization=True
-    )
+    test_ds = build_tft_test_dataset(training_ds, scaled_df, test_mask)
     test_loader = test_ds.to_dataloader(train=False, batch_size=256, num_workers=0)
 
     tft = TemporalFusionTransformer.load_from_checkpoint(best_ckpt)
     tft.eval()
-
-    raw_preds, x = tft.predict(test_loader, mode="raw", return_x=True)
-    preds = raw_preds["prediction"].squeeze(-1).cpu().numpy()
-
-    targets = scaled_df.loc[test_mask, "target"].values[SEQ_LEN:]
-    min_len = min(len(preds), len(targets))
-    return preds[:min_len], targets[:min_len]
+    out = tft.predict(test_loader, mode="prediction", return_index=True)
+    preds = out.output.squeeze(-1).cpu().numpy()
+    dates = scaled_df.set_index("time_idx")["forecast_date"].reindex(out.index["time_idx"].values)
+    return pd.Series(preds, index=pd.DatetimeIndex(dates.values))
 
 
 def get_tft_attention(best_ckpt: str, n_samples: int = 100):
@@ -83,17 +76,18 @@ def get_tft_attention(best_ckpt: str, n_samples: int = 100):
 
     from pytorch_forecasting import TimeSeriesDataSet
 
-    test_ds = TimeSeriesDataSet.from_dataset(
-        training_ds, scaled_df[val_mask | test_mask], predict=True, stop_randomization=True
-    )
+    from models.tft_model import build_tft_test_dataset
+    test_ds = build_tft_test_dataset(training_ds, scaled_df, test_mask)
     loader = test_ds.to_dataloader(train=False, batch_size=n_samples, num_workers=0)
 
     tft = TemporalFusionTransformer.load_from_checkpoint(best_ckpt)
     tft.eval()
 
-    raw_preds, x = tft.predict(loader, mode="raw", return_x=True)
-    attention = raw_preds.get("attention", None)
-    return attention
+    out = tft.predict(loader, mode="raw", return_x=True)
+    att = out.output.get("encoder_attention")  # (batch, decoder_len, heads, encoder_len)
+    if att is None:
+        return None
+    return att[:n_samples].mean(dim=2)[:, 0, :]  # average over heads, one decoder step
 
 
 def get_baseline_preds(df: pd.DataFrame) -> dict[str, pd.Series]:
@@ -139,13 +133,10 @@ def run_evaluation(tft_ckpt: str = None):
     all_preds_s = {"LSTM": lstm_preds, "GARCH": baseline["garch"], "XGB": baseline["xgb"]}
     all_preds_s.update(get_naive_preds(df))
 
-    # TFT (optional, skipped if no checkpoint). NOTE: the TFT path is not date-aligned
-    # (predict=True yields one window per group); treat it as experimental.
+    # TFT (optional, skipped if no checkpoint); forecasts carry their own dates
     if tft_ckpt and Path(tft_ckpt).exists():
         print("Getting TFT predictions...")
-        tft_raw, _ = get_tft_preds(tft_ckpt)
-        n = min(len(tft_raw), len(lstm_preds))
-        all_preds_s["TFT"] = pd.Series(tft_raw[:n], index=lstm_preds.index[:n])
+        all_preds_s["TFT"] = get_tft_preds(tft_ckpt)
 
     # align on COMMON DATES (models start forecasting on different days)
     aligned = align_on_dates(baseline["targets"], all_preds_s)
@@ -222,11 +213,7 @@ def run_evaluation(tft_ckpt: str = None):
     if tft_ckpt and Path(tft_ckpt).exists():
         attention = get_tft_attention(tft_ckpt)
         if attention is not None:
-            att_np = attention.squeeze().cpu().numpy()
-            if att_np.ndim == 3:
-                att_np = att_np.mean(axis=0)  # average over heads
-            elif att_np.ndim == 1:
-                att_np = att_np[np.newaxis, :]
+            att_np = attention.cpu().numpy()  # (samples, encoder steps)
             fig, ax = plt.subplots(figsize=(12, 4))
             sns.heatmap(att_np[:20], ax=ax, cmap="YlOrRd", xticklabels=5, yticklabels=False)
             ax.set_title("TFT Encoder Attention Weights (first 20 samples)")
