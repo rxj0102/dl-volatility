@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 from torch.utils.data import DataLoader
 
@@ -13,7 +13,8 @@ from models.tft_model import build_tft_datasets, build_tft_model, get_tft_traine
 LOG_PATH = Path("outputs/training_log_tft.csv")
 
 
-def train_tft(max_epochs: int = 100, patience: int = 15, batch_size: int = 64):
+def train_tft(max_epochs: int = 100, patience: int = 15, batch_size: int = 64, seed: int = 0):
+    pl.seed_everything(seed, workers=True)
     scaled_df, train_mask, val_mask, test_mask, scaler = build_tft_dataframes()
 
     training_ds, validation_ds = build_tft_datasets(scaled_df, train_mask, val_mask)
