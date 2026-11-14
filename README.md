@@ -78,7 +78,7 @@ Test set: 2021-01-04 to 2026-09-30, scored on the dates where all three models h
 | LSTM | 1.5148 | **1.3255** | 0.651 | 0.515 |
 | TFT | not run | not run | not run | not run |
 
-Positive DM statistics mean the model has higher loss than GARCH. All three models are statistically indistinguishable: GARCH has the lowest QLIKE and the LSTM the lowest log-vol RMSE, but neither gap is significant. TFT was not run here because one epoch takes about five minutes on CPU; run `python -m training.run_all` on a GPU to add it.
+Positive DM statistics mean the model has higher loss than GARCH. All three models are statistically indistinguishable: GARCH has the lowest QLIKE and the LSTM the lowest log-vol RMSE, but neither gap is significant. TFT was not run here because one epoch takes about five minutes on CPU. [`notebooks/tft_colab.ipynb`](notebooks/tft_colab.ipynb) runs the full pipeline, TFT included, on a free Colab GPU: [open in Colab](https://colab.research.google.com/github/rxj0102/dl-volatility/blob/main/notebooks/tft_colab.ipynb).
 
 **LSTM fix (Nov 2026).** The first open data run had the LSTM far behind (QLIKE 3.91) with its best validation loss after epoch 1. The cause was the output layer: a Softplus head starts near 1, about four orders of magnitude above daily variance, so training stalled. The model now predicts log-variance around an offset set to the log of the mean training target and exponentiates. It trains for 43 epochs (best validation epoch 28). The squared-return target is also floored at 2.5e-9, the rounding resolution of the Ken French returns (0.01%), instead of 1e-10, so the 19 zero-return days in the training window no longer dominate QLIKE; this moved every model's QLIKE slightly.
 
