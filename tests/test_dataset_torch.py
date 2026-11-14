@@ -3,7 +3,6 @@ import pandas as pd
 import pytest
 
 pytest.importorskip("torch")
-pytest.importorskip("yfinance")
 import data.dataset as ds  # noqa: E402
 from data.features import FEATURE_COLS  # noqa: E402
 

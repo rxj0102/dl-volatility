@@ -11,7 +11,7 @@ from arch import arch_model
 import xgboost as xgb
 from sklearn.preprocessing import StandardScaler
 
-from data.features import FEATURE_COLS, download_and_engineer, garman_klass_vol
+from data.features import FEATURE_COLS, VOL_COLS, download_and_engineer
 
 TRAIN_END = "2018-12-31"
 VAL_END = "2020-12-31"
@@ -61,7 +61,7 @@ def build_xgb_features(df: pd.DataFrame) -> pd.DataFrame:
     """Extra lag features for XGBoost on top of the standard feature set."""
     out = df[FEATURE_COLS].copy()
     for lag in [1, 2, 3, 5]:
-        for col in ["gk_5", "gk_10", "gk_22", "log_ret"]:
+        for col in VOL_COLS + ["log_ret"]:
             out[f"{col}_lag{lag}"] = df[col].shift(lag)
     return out.dropna()
 

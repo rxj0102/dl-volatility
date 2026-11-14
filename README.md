@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/rxj0102/dl-volatility/actions/workflows/ci.yml/badge.svg)](https://github.com/rxj0102/dl-volatility/actions/workflows/ci.yml)
 
-Benchmark deep-learning volatility models (LSTM, TFT) against classical baselines (GJR-GARCH, XGBoost) on SPY daily data from 2010 to present. Evaluation uses QLIKE loss, RMSE of log-vol, Diebold-Mariano significance tests, and regime-conditional analysis.
+Benchmark deep-learning volatility models (LSTM, TFT) against classical baselines (GJR-GARCH, XGBoost) on daily US equity market data from 2010 to September 2026, using free open data (Ken French Data Library, FRED). Evaluation uses QLIKE loss, RMSE of log-vol, Diebold-Mariano significance tests, and regime-conditional analysis.
 
 ---
 
@@ -31,21 +31,30 @@ Benchmark deep-learning volatility models (LSTM, TFT) against classical baseline
 
 ### Baselines
 - **GJR-GARCH(1,1)** – asymmetric GARCH via the `arch` library; captures leverage effect.
-- **XGBoost** – gradient-boosted trees on lagged Garman-Klass vol, VIX, and return features.
+- **XGBoost** – gradient-boosted trees on lagged realized vol, VIX, and return features.
 
 ---
 
-## Features
-| Feature | Description |
-|---------|-------------|
-| `gk_5/10/22` | Garman-Klass annualized realized vol (5/10/22-day window) |
-| `vix` | CBOE VIX close |
-| `log_ret` | Daily log return |
-| `vol_zscore` | 22-day volume z-score |
-| `dow` | Day-of-week (0–4) |
-| `month` | Month (1–12) |
+## Data
 
-All features are lagged 1 day. Target: next-day Garman-Klass daily variance.
+| Series | Source |
+|--------|--------|
+| SPY stand in | Ken French Data Library, US market total return (Mkt-RF + RF), daily, 2010 to 2026-09-30 |
+| VIX | FRED VIXCLS |
+
+These sources publish closes only (no open, high, low or volume), so the default pipeline is close-only. If you pass OHLCV data to `engineer_features`, it switches back to Garman-Klass features and target.
+
+## Features
+| Feature | Close-only (default) | With OHLCV input |
+|---------|-------------|-------------|
+| `vol_5/10/22` | Close-to-close annualized vol (5/10/22-day window) | Garman-Klass annualized vol |
+| `vix` | VIX close | VIX close |
+| `log_ret` | Daily log return | Daily log return |
+| `aux_z` | 22-day z-score of the daily VIX log change | 22-day volume z-score |
+| `dow` | Day-of-week (0-4) | Day-of-week (0-4) |
+| `month` | Month (1-12) | Month (1-12) |
+
+All features are lagged 1 day. Target: realized variance of day t, which is the squared daily log return in close-only mode (floored at 1e-10) and Garman-Klass variance with OHLCV.
 
 ---
 
@@ -60,25 +69,31 @@ All features are lagged 1 day. Target: next-day Garman-Klass daily variance.
 
 ## Test-Set Results
 
+Test set: 2021-01-04 to 2026-09-30, scored on the dates where all three models have a forecast (the LSTM needs a 60 day window, so it starts later). Numbers are copied from `outputs/model_comparison.csv` and `outputs/regime_performance.csv`, produced by `python -m training.run_all --skip-tft`.
+
 | Model | QLIKE | RMSE (log-vol) | DM vs GARCH stat | DM p-value |
 |-------|-------|----------------|------------------|------------|
-| LSTM | - | - | - | - |
-| TFT | - | - | - | - |
-| GARCH | - | - | 0.000 | 1.000 |
-| XGB | - | - | - | - |
+| GJR-GARCH | 1.4863 | 1.3625 | 0.000 | 1.000 |
+| XGBoost | 1.4958 | 1.3718 | 0.450 | 0.653 |
+| LSTM | 1.5148 | **1.3255** | 0.651 | 0.515 |
+| TFT | not run | not run | not run | not run |
 
-> Run `python -m training.run_all` to populate this table with actual results.
+Positive DM statistics mean the model has higher loss than GARCH. All three models are statistically indistinguishable: GARCH has the lowest QLIKE and the LSTM the lowest log-vol RMSE, but neither gap is significant. TFT was not run here because one epoch takes about five minutes on CPU. [`notebooks/tft_colab.ipynb`](notebooks/tft_colab.ipynb) runs the full pipeline, TFT included, on a free Colab GPU: [open in Colab](https://colab.research.google.com/github/rxj0102/dl-volatility/blob/main/notebooks/tft_colab.ipynb).
+
+**LSTM fix (Nov 2026).** The first open data run had the LSTM far behind (QLIKE 3.91) with its best validation loss after epoch 1. The cause was the output layer: a Softplus head starts near 1, about four orders of magnitude above daily variance, so training stalled. The model now predicts log-variance around an offset set to the log of the mean training target and exponentiates. It trains for 43 epochs (best validation epoch 28). The squared-return target is also floored at 2.5e-9, the rounding resolution of the Ken French returns (0.01%), instead of 1e-10, so the 19 zero-return days in the training window no longer dominate QLIKE; this moved every model's QLIKE slightly.
 
 ---
 
 ## Regime-Conditional QLIKE
 
-| Model | Low-vol QLIKE (VIX < 20) | High-vol QLIKE (VIX > 25) |
+| Model | Low-vol QLIKE (VIX < 20, 948 days) | High-vol QLIKE (VIX > 25, 179 days) |
 |-------|--------------------------|---------------------------|
-| LSTM | - | - |
-| TFT | - | - |
-| GARCH | - | - |
-| XGB | - | - |
+| GJR-GARCH | 1.4997 | 1.3314 |
+| XGBoost | 1.4931 | 1.4677 |
+| LSTM | 1.5315 | 1.5575 |
+| TFT | not run | not run |
+
+XGBoost edges GARCH in calm markets; GARCH is clearly best in stressed markets, where both learned models lose ground.
 
 ---
 
@@ -87,7 +102,8 @@ All features are lagged 1 day. Target: next-day Garman-Klass daily variance.
 ```
 dl-volatility/
 ├── data/
-│   ├── features.py        # Garman-Klass vol, VIX, log returns, volume z-score
+│   ├── features.py        # Realized vol (close-only or Garman-Klass), VIX, returns
+│   ├── opendata.py        # FRED and Ken French downloaders (cached)
 │   └── dataset.py         # PyTorch Dataset, DataLoaders, TFT-compatible splits
 ├── models/
 │   ├── lstm_model.py      # 2-layer LSTM forecaster
@@ -137,4 +153,12 @@ python -m evaluation.evaluate outputs/checkpoints/tft_best.ckpt
 - **GARCH baseline fixed.** `predict_garch` previously returned *training-period* forecasts (arch ignores `start` beyond the fitted sample). It now fixes the train+val parameters and filters through the test returns, so forecasts are genuinely out of sample.
 - **Date-based comparison.** `evaluate.py` used to truncate LSTM, GARCH and XGBoost forecasts by position, which compared forecasts with the wrong days (the LSTM starts 60 days into the test set, XGBoost a few days in). Models are now aligned on common dates.
 - **TFT scaler** is fit on the training split only.
-- **Results in `outputs/` and any README numbers predate these fixes and must be regenerated** (`python -m training.train_lstm`, then `python -m evaluation.evaluate`). The TFT evaluation path is still experimental (it is not date-aligned).
+- **Results regenerated after these fixes** on open data (Nov 2026). The TFT evaluation path is still experimental (it is not date-aligned).
+
+## Data snapshot
+
+`outputs/open_data_manifest.json` records every open data file behind the results above (SHA-256, rows, first and last date). Ken French and FRED occasionally revise history; after a fresh download, check whether the inputs still match with:
+
+```bash
+python -c "from data.opendata import verify_manifest; print(verify_manifest('outputs/open_data_manifest.json'))"
+```
