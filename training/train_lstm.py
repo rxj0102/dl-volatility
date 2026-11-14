@@ -33,7 +33,9 @@ def train_lstm(
     train_loader, val_loader, test_loader, scaler, df = build_loaders(batch_size=batch_size)
     input_size = next(iter(train_loader))[0].shape[-1]
 
-    model = build_lstm(input_size=input_size, device=device)
+    train_y = train_loader.dataset.targets.numpy()
+    model = build_lstm(input_size=input_size, device=device,
+                       log_var_init=float(np.log(train_y.mean())))
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", patience=5, factor=0.5)
     criterion = QLIKELoss()
