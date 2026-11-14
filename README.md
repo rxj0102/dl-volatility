@@ -149,7 +149,7 @@ python -m evaluation.evaluate outputs/checkpoints/tft_best.ckpt
 
 ## Evaluation notes (important)
 
-- **Target and alignment fixed.** Features were lagged one day *and* the target shifted `-1`, so the "next-day" target was really two days ahead, and the LSTM dataset paired each window with the target one row too late. Rows now hold information through `t-1` and the target is the realised GK variance of day `t`; each window is paired with its own last row's target.
+- **Target and alignment fixed.** Features were lagged one day *and* the target shifted `-1`, so the *next-day* target was really two days ahead, and the LSTM dataset paired each window with the target one row too late. Rows now hold information through `t-1` and the target is the realised GK variance of day `t`; each window is paired with its own last row's target.
 - **GARCH baseline fixed.** `predict_garch` previously returned *training-period* forecasts (arch ignores `start` beyond the fitted sample). It now fixes the train+val parameters and filters through the test returns, so forecasts are genuinely out of sample.
 - **Date-based comparison.** `evaluate.py` used to truncate LSTM, GARCH and XGBoost forecasts by position, which compared forecasts with the wrong days (the LSTM starts 60 days into the test set, XGBoost a few days in). Models are now aligned on common dates.
 - **TFT scaler** is fit on the training split only.
