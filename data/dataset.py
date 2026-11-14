@@ -88,13 +88,18 @@ def build_tft_dataframes(ticker: str = "SPY"):
     # pytorch-forecasting requires integer time_idx and group id
     scaled_df = scaled_df.reset_index()
     scaled_df.rename(columns={"Date": "date"}, inplace=True)
+    # TFT encoders only see rows BEFORE the decoder step. To give the TFT the same
+    # information set as the LSTM (features through day t for target[t]), the TFT
+    # target at row j is target[j-1], and its forecast belongs to the date of row j-1.
+    scaled_df["tft_target"] = scaled_df["target"].shift(1)
+    scaled_df["forecast_date"] = scaled_df["date"].shift(1)
+    scaled_df = scaled_df.iloc[1:].reset_index(drop=True)
     scaled_df["time_idx"] = np.arange(len(scaled_df))
     scaled_df["group"] = "SPY"
 
-    train_mask = scaled_df["date"] <= pd.Timestamp(TRAIN_END)
-    val_mask = (scaled_df["date"] > pd.Timestamp(TRAIN_END)) & (
-        scaled_df["date"] <= pd.Timestamp(VAL_END)
-    )
-    test_mask = scaled_df["date"] > pd.Timestamp(VAL_END)
+    fd = scaled_df["forecast_date"]
+    train_mask = fd <= pd.Timestamp(TRAIN_END)
+    val_mask = (fd > pd.Timestamp(TRAIN_END)) & (fd <= pd.Timestamp(VAL_END))
+    test_mask = fd > pd.Timestamp(VAL_END)
 
     return scaled_df, train_mask, val_mask, test_mask, scaler

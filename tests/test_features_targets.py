@@ -47,3 +47,10 @@ def test_close_only_mode_uses_squared_return_target(spy_vix):
     # vol_5 on row d uses returns through d-1 only
     prev = spy.index[spy.index.get_loc(d) - 1]
     assert feat.loc[d, "vol_5"] == pytest.approx(lr.loc[:prev].tail(5).std() * np.sqrt(252))
+
+
+def test_vix_as_one_column_frame_matches_series(spy_vix):
+    """Newer yfinance returns Close as a one-column DataFrame named ^VIX."""
+    spy, vix = spy_vix
+    as_frame = vix.to_frame(name="^VIX")
+    pd.testing.assert_frame_equal(engineer_features(spy, vix), engineer_features(spy, as_frame))

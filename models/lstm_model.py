@@ -1,5 +1,7 @@
 """2-layer LSTM for next-day realized variance forecasting."""
 
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
 
@@ -39,6 +41,10 @@ class LSTMForecaster(nn.Module):
         return torch.exp((raw + self.log_var_offset).clamp(-30.0, 5.0))
 
 
-def build_lstm(input_size: int = 8, device: str = "cpu", log_var_init: float = -9.0) -> LSTMForecaster:
+def build_lstm(input_size: int = 8, device: str = "cpu", log_var_init: float = -9.0,
+               init_log_var: float | None = None) -> LSTMForecaster:
+    """``init_log_var`` is an alias for ``log_var_init`` (log of the mean training variance)."""
+    if init_log_var is not None:
+        log_var_init = init_log_var
     model = LSTMForecaster(input_size=input_size, log_var_init=log_var_init)
     return model.to(device)

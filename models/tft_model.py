@@ -14,17 +14,21 @@ PRED_LEN = 1
 
 
 def build_tft_datasets(scaled_df: pd.DataFrame, train_mask, val_mask):
-    """Create pytorch-forecasting TimeSeriesDataSet objects."""
-    max_encoder_length = SEQ_LEN
-    max_prediction_length = PRED_LEN
+    """Create pytorch-forecasting TimeSeriesDataSet objects.
 
+    The model is fitted on training-period rows only. Validation scores every
+    rolling window whose forecast falls in the validation period (the earlier
+    version used predict=True, which keeps a single window, and also trained on
+    the validation rows it was then selected on).
+    """
     training = TimeSeriesDataSet(
-        scaled_df[train_mask | val_mask],
+        scaled_df[train_mask],
         time_idx="time_idx",
-        target="target",
+        target="tft_target",
         group_ids=["group"],
-        max_encoder_length=max_encoder_length,
-        max_prediction_length=max_prediction_length,
+        max_encoder_length=SEQ_LEN,
+        min_encoder_length=SEQ_LEN,
+        max_prediction_length=PRED_LEN,
         time_varying_unknown_reals=FEATURE_COLS,
         target_normalizer=GroupNormalizer(groups=["group"], transformation="softplus"),
         add_relative_time_idx=True,
@@ -34,10 +38,23 @@ def build_tft_datasets(scaled_df: pd.DataFrame, train_mask, val_mask):
     )
 
     validation = TimeSeriesDataSet.from_dataset(
-        training, scaled_df[val_mask], predict=True, stop_randomization=True
+        training,
+        scaled_df[train_mask | val_mask],
+        min_prediction_idx=int(scaled_df.loc[val_mask, "time_idx"].min()),
+        stop_randomization=True,
     )
 
     return training, validation
+
+
+def build_tft_test_dataset(training: TimeSeriesDataSet, scaled_df: pd.DataFrame, test_mask):
+    """One rolling window per test day (encoder may reach back into earlier periods)."""
+    return TimeSeriesDataSet.from_dataset(
+        training,
+        scaled_df,
+        min_prediction_idx=int(scaled_df.loc[test_mask, "time_idx"].min()),
+        stop_randomization=True,
+    )
 
 
 def build_tft_model(training_dataset: TimeSeriesDataSet) -> TemporalFusionTransformer:
