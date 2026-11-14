@@ -43,7 +43,7 @@ def test_close_only_mode_uses_squared_return_target(spy_vix):
     feat = engineer_features(spy[["Close"]], vix)
     lr = np.log(spy["Close"] / spy["Close"].shift(1))
     d = feat.index[400]
-    assert feat.loc[d, "target"] == pytest.approx(max(lr.loc[d] ** 2, 1e-10))
+    assert feat.loc[d, "target"] == pytest.approx(max(lr.loc[d] ** 2, 2.5e-9))
     # vol_5 on row d uses returns through d-1 only
     prev = spy.index[spy.index.get_loc(d) - 1]
     assert feat.loc[d, "vol_5"] == pytest.approx(lr.loc[:prev].tail(5).std() * np.sqrt(252))

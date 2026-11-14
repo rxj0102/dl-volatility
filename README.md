@@ -73,12 +73,14 @@ Test set: 2021-01-04 to 2026-09-30, scored on the dates where all three models h
 
 | Model | QLIKE | RMSE (log-vol) | DM vs GARCH stat | DM p-value |
 |-------|-------|----------------|------------------|------------|
-| GJR-GARCH | 1.5142 | 1.3625 | 0.000 | 1.000 |
-| XGBoost | 1.5237 | 1.3718 | 0.450 | 0.653 |
-| LSTM | 3.9137 | 2.7048 | 44.686 | 0.000 |
+| GJR-GARCH | 1.4863 | 1.3625 | 0.000 | 1.000 |
+| XGBoost | 1.4958 | 1.3718 | 0.450 | 0.653 |
+| LSTM | 1.5148 | **1.3255** | 0.651 | 0.515 |
 | TFT | not run | not run | not run | not run |
 
-Positive DM statistics mean the model has higher QLIKE loss than GARCH. XGBoost is statistically indistinguishable from GJR-GARCH. The LSTM is far worse: on this noisy squared return target its validation loss was best after the first epoch and early stopping ended training at epoch 16 (`outputs/training_log_lstm.csv`), so it did not learn a useful mapping. TFT was not run here because one epoch takes about five minutes on CPU; run `python -m training.run_all` on a GPU to add it.
+Positive DM statistics mean the model has higher loss than GARCH. All three models are statistically indistinguishable: GARCH has the lowest QLIKE and the LSTM the lowest log-vol RMSE, but neither gap is significant. TFT was not run here because one epoch takes about five minutes on CPU; run `python -m training.run_all` on a GPU to add it.
+
+**LSTM fix (Nov 2026).** The first open data run had the LSTM far behind (QLIKE 3.91) with its best validation loss after epoch 1. The cause was the output layer: a Softplus head starts near 1, about four orders of magnitude above daily variance, so training stalled. The model now predicts log-variance around an offset set to the log of the mean training target and exponentiates. It trains for 43 epochs (best validation epoch 28). The squared-return target is also floored at 2.5e-9, the rounding resolution of the Ken French returns (0.01%), instead of 1e-10, so the 19 zero-return days in the training window no longer dominate QLIKE; this moved every model's QLIKE slightly.
 
 ---
 
@@ -86,12 +88,12 @@ Positive DM statistics mean the model has higher QLIKE loss than GARCH. XGBoost 
 
 | Model | Low-vol QLIKE (VIX < 20, 948 days) | High-vol QLIKE (VIX > 25, 179 days) |
 |-------|--------------------------|---------------------------|
-| GJR-GARCH | 1.5370 | 1.3314 |
-| XGBoost | 1.5304 | 1.4677 |
-| LSTM | 4.3600 | 2.4814 |
+| GJR-GARCH | 1.4997 | 1.3314 |
+| XGBoost | 1.4931 | 1.4677 |
+| LSTM | 1.5315 | 1.5575 |
 | TFT | not run | not run |
 
-XGBoost edges GARCH in calm markets and loses to it in stressed markets.
+XGBoost edges GARCH in calm markets; GARCH is clearly best in stressed markets, where both learned models lose ground.
 
 ---
 

@@ -23,7 +23,8 @@ import pandas as pd
 
 FEATURE_COLS = ["vol_5", "vol_10", "vol_22", "vix", "log_ret", "aux_z", "dow", "month"]
 VOL_COLS = ["vol_5", "vol_10", "vol_22"]
-TARGET_FLOOR = 1e-10  # squared returns can be exactly zero; QLIKE needs a positive target
+TARGET_FLOOR = 2.5e-9  # Ken French returns are rounded to 0.01%, so a zero return means |r| < 0.5e-4;
+                       # floor the squared return at that resolution (QLIKE needs a positive target)
 
 
 def garman_klass_vol(df: pd.DataFrame, window: int) -> pd.Series:
