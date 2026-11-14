@@ -154,3 +154,11 @@ python -m evaluation.evaluate outputs/checkpoints/tft_best.ckpt
 - **Date-based comparison.** `evaluate.py` used to truncate LSTM, GARCH and XGBoost forecasts by position, which compared forecasts with the wrong days (the LSTM starts 60 days into the test set, XGBoost a few days in). Models are now aligned on common dates.
 - **TFT scaler** is fit on the training split only.
 - **Results regenerated after these fixes** on open data (Nov 2026). The TFT evaluation path is still experimental (it is not date-aligned).
+
+## Data snapshot
+
+`outputs/open_data_manifest.json` records every open data file behind the results above (SHA-256, rows, first and last date). Ken French and FRED occasionally revise history; after a fresh download, check whether the inputs still match with:
+
+```bash
+python -c "from data.opendata import verify_manifest; print(verify_manifest('outputs/open_data_manifest.json'))"
+```
