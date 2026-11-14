@@ -30,7 +30,6 @@ def spy_vix():
 
 @pytest.fixture(scope="session")
 def feat_df(spy_vix):
-    pytest.importorskip("yfinance")
     from data.features import engineer_features
 
     return engineer_features(*spy_vix)

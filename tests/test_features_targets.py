@@ -2,8 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("yfinance")
-from data.features import FEATURE_COLS, engineer_features  # noqa: E402
+from data.features import FEATURE_COLS, VOL_COLS, engineer_features  # noqa: E402
 
 
 def _gk(spy):
@@ -30,10 +29,21 @@ def test_features_exclude_the_targets_own_day(spy_vix):
     assert base.loc[d, "target"] != pytest.approx(alt.loc[d, "target"])
     # the next row's features do see day d
     nxt = base.index[501]
-    assert not np.allclose(base.loc[nxt, ["gk_5", "gk_10", "gk_22"]], alt.loc[nxt, ["gk_5", "gk_10", "gk_22"]])
+    assert not np.allclose(base.loc[nxt, VOL_COLS], alt.loc[nxt, VOL_COLS])
 
 
 def test_features_point_in_time(spy_vix, feat_df):
     spy, vix = spy_vix
     part = engineer_features(spy.iloc[:1500], vix.iloc[:1500])
     pd.testing.assert_frame_equal(part, feat_df.loc[part.index])
+
+
+def test_close_only_mode_uses_squared_return_target(spy_vix):
+    spy, vix = spy_vix
+    feat = engineer_features(spy[["Close"]], vix)
+    lr = np.log(spy["Close"] / spy["Close"].shift(1))
+    d = feat.index[400]
+    assert feat.loc[d, "target"] == pytest.approx(max(lr.loc[d] ** 2, 1e-10))
+    # vol_5 on row d uses returns through d-1 only
+    prev = spy.index[spy.index.get_loc(d) - 1]
+    assert feat.loc[d, "vol_5"] == pytest.approx(lr.loc[:prev].tail(5).std() * np.sqrt(252))

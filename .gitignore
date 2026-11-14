@@ -29,3 +29,6 @@ outputs/checkpoints/*.ckpt
 lightning_logs/
 tb_logs/
 mlruns/
+
+# open data cache
+data/open_cache/

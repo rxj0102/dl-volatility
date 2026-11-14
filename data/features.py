@@ -1,8 +1,29 @@
-"""Feature engineering: Garman-Klass volatility, VIX, log returns, volume z-score."""
+"""Feature engineering for next-day volatility forecasting.
+
+Default data is open and free (no Yahoo Finance):
+  SPY stand in : Ken French US market total return (Mkt-RF + RF), daily
+  VIX          : FRED VIXCLS
+
+These sources only provide closes, so the default (close-only) mode uses
+close-to-close realized volatility and a squared-return variance target.
+If OHLCV data is supplied, engineer_features() uses Garman-Klass instead.
+
+Feature columns are named generically so both modes share FEATURE_COLS:
+  vol_5, vol_10, vol_22 : rolling annualised volatility (GK or close-to-close)
+  vix                   : VIX close
+  log_ret               : daily log return
+  aux_z                 : 22-day z-score of volume (OHLCV) or of the daily VIX log change (close-only)
+  dow, month            : calendar
+  target                : variance of day t (GK or squared log return)
+All features are lagged 1 day, so row t uses information through t-1.
+"""
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
+
+FEATURE_COLS = ["vol_5", "vol_10", "vol_22", "vix", "log_ret", "aux_z", "dow", "month"]
+VOL_COLS = ["vol_5", "vol_10", "vol_22"]
+TARGET_FLOOR = 1e-10  # squared returns can be exactly zero; QLIKE needs a positive target
 
 
 def garman_klass_vol(df: pd.DataFrame, window: int) -> pd.Series:
@@ -13,45 +34,53 @@ def garman_klass_vol(df: pd.DataFrame, window: int) -> pd.Series:
     return np.sqrt(gk_daily.rolling(window).mean() * 252)
 
 
+def load_open_data(start: str = "2010-01-01", end: str = None):
+    """Return (prices, vix) from open sources: Ken French market index and FRED VIX."""
+    from data.opendata import fred, french
+
+    ff = french("F-F_Research_Data_Factors_daily", start=start, end=end)
+    mkt = ff["Mkt-RF"] + ff["RF"]
+    prices = pd.DataFrame({"Close": 100 * (1 + mkt).cumprod()})
+    prices.index.name = "Date"
+    vix = fred("VIXCLS", start, end)["VIXCLS"].dropna()
+    return prices, vix
+
+
 def download_and_engineer(
     ticker: str = "SPY",
     vix_ticker: str = "^VIX",
     start: str = "2010-01-01",
     end: str = None,
 ) -> pd.DataFrame:
+    """Load open data for the SPY stand in and VIX and build the feature frame.
+
+    ticker and vix_ticker are kept for API compatibility; the open data loader
+    always uses the Ken French US market return and FRED VIXCLS.
     """
-    Download OHLCV + VIX and return a feature DataFrame with:
-      gk_5, gk_10, gk_22  – rolling Garman-Klass vol
-      vix                  – VIX close
-      log_ret              – daily log return
-      vol_zscore           – 22-day volume z-score
-      dow                  – day-of-week (0-4)
-      month                – month (1-12)
-      target               – GK daily variance of the row's day (forecast from info through t-1)
-    All features are lagged 1 day to avoid look-ahead.
-    """
-    spy = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
-    vix = yf.download(vix_ticker, start=start, end=end, auto_adjust=True, progress=False)["Close"]
-    spy.columns = [c[0] if isinstance(c, tuple) else c for c in spy.columns]
-    return engineer_features(spy, vix)
+    prices, vix = load_open_data(start, end)
+    return engineer_features(prices, vix)
 
 
 def engineer_features(spy: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
     """Pure feature construction (no network). Row t holds information through the
-    close of day t-1 and the target is the realised GK variance of day t, i.e. a
+    close of day t-1 and the target is the realised variance of day t, i.e. a
     genuine one-step-ahead forecast problem.
+
+    Uses Garman-Klass when Open/High/Low/Volume are present, otherwise close-only.
     """
     vix = vix.copy()
     vix.name = "vix"
     df = spy.copy()
     df["log_ret"] = np.log(df["Close"] / df["Close"].shift(1))
-    df["gk_5"] = garman_klass_vol(df, 5)
-    df["gk_10"] = garman_klass_vol(df, 10)
-    df["gk_22"] = garman_klass_vol(df, 22)
+    ohlcv = {"Open", "High", "Low", "Volume"}.issubset(df.columns)
 
-    vol_mean = df["Volume"].rolling(22).mean()
-    vol_std = df["Volume"].rolling(22).std()
-    df["vol_zscore"] = (df["Volume"] - vol_mean) / vol_std
+    if ohlcv:
+        for w in (5, 10, 22):
+            df[f"vol_{w}"] = garman_klass_vol(df, w)
+        aux = df["Volume"]
+    else:
+        for w in (5, 10, 22):
+            df[f"vol_{w}"] = df["log_ret"].rolling(w).std() * np.sqrt(252)
 
     df["dow"] = df.index.dayofweek
     df["month"] = df.index.month
@@ -59,22 +88,20 @@ def engineer_features(spy: pd.DataFrame, vix: pd.Series) -> pd.DataFrame:
     df = df.join(vix, how="left")
     df["vix"] = df["vix"].ffill()
 
-    # target: realised GK variance of day t. Features are lagged one day below, so the
-    # forecast uses information through t-1 only. (Previously the target was ALSO
-    # shifted -1, which made it a two-day-ahead target while being labelled "next day".)
-    log_hl = np.log(df["High"] / df["Low"])
-    log_co = np.log(df["Close"] / df["Open"])
-    gk_daily_var = 0.5 * log_hl**2 - (2 * np.log(2) - 1) * log_co**2
-    df["target"] = gk_daily_var
+    if not ohlcv:
+        aux = np.log(df["vix"]).diff()
+    df["aux_z"] = (aux - aux.rolling(22).mean()) / aux.rolling(22).std()
 
-    feature_cols = ["gk_5", "gk_10", "gk_22", "vix", "log_ret", "vol_zscore", "dow", "month"]
+    # target: realised variance of day t. Features are lagged one day below.
+    if ohlcv:
+        log_hl = np.log(df["High"] / df["Low"])
+        log_co = np.log(df["Close"] / df["Open"])
+        df["target"] = 0.5 * log_hl**2 - (2 * np.log(2) - 1) * log_co**2
+    else:
+        df["target"] = (df["log_ret"] ** 2).clip(lower=TARGET_FLOOR)
 
-    # lag features 1 day to avoid look-ahead
-    for col in feature_cols:
+    for col in FEATURE_COLS:
         df[col] = df[col].shift(1)
 
-    df = df.dropna(subset=feature_cols + ["target"])
-    return df[feature_cols + ["target", "Close"]]
-
-
-FEATURE_COLS = ["gk_5", "gk_10", "gk_22", "vix", "log_ret", "vol_zscore", "dow", "month"]
+    df = df.dropna(subset=FEATURE_COLS + ["target"])
+    return df[FEATURE_COLS + ["target", "Close"]]

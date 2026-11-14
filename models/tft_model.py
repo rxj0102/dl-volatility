@@ -1,7 +1,7 @@
 """Temporal Fusion Transformer wrapper using pytorch-forecasting."""
 
 import pandas as pd
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from pytorch_forecasting.metrics import QuantileLoss, RMSE
@@ -56,7 +56,7 @@ def build_tft_model(training_dataset: TimeSeriesDataSet) -> TemporalFusionTransf
 
 
 def get_tft_trainer(max_epochs: int = 100, patience: int = 15) -> pl.Trainer:
-    from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
     early_stop = EarlyStopping(
         monitor="val_loss", patience=patience, mode="min", verbose=False

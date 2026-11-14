@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-pytest.importorskip("yfinance")
 pytest.importorskip("xgboost")
 from models.baseline import BaselineForecaster, TRAIN_END, VAL_END  # noqa: E402
 
