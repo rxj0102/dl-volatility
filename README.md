@@ -162,3 +162,28 @@ python -m evaluation.evaluate outputs/checkpoints/tft_best.ckpt
 ```bash
 python -c "from data.opendata import verify_manifest; print(verify_manifest('outputs/open_data_manifest.json'))"
 ```
+
+## Reproducibility
+
+### Data availability
+
+All inputs come from free, public sources. No paid data or API keys are required unless noted.
+
+- FRED and the Ken French Data Library, loaded by `data/opendata.py` (free, no key)
+- The manifest in `outputs/open_data_manifest.json` (see Data snapshot above)
+
+### Computational requirements
+
+- Python 3.12.3. Every dependency version is pinned in `uv.lock`.
+- Checked on Linux x86_64 with 2 CPU cores and 8 GB RAM. No GPU is needed.
+
+```bash
+pip install uv     # once
+uv sync            # installs the exact pinned environment
+uv run pytest -q   # runs the test suite
+```
+
+### Citation
+
+Citation metadata is in `CITATION.cff`. GitHub turns it into a Cite this repository button on the repo page.
+
